@@ -1,20 +1,22 @@
 # See https://rosalind.info/problems/list-view/
 SHELL=/bin/ksh
-CPPFLAGS += -I..
-CFLAGS += -O3
-#CFLAGS += -g
 CFLAGS+=-fPIC
+
+# --------- DEPENDENCIES ------------
 DIRMAPS = ../minimaps# see https://github.com/farhiongit/minimaps
 DIRAC75 = ../aho-corasick-1975# see https://github.com/farhiongit/aho-corasick-1975
-
 CPPFLAGS += -I. -I$(DIRMAPS) -I$(DIRAC75)
 LDFLAGS += -L. -L$(DIRMAPS) -L$(DIRAC75)
-LDLIBS += -lac75 -lmap -lrosatools -lnewick -lm -lsuffixtree
+LDLIBS += -lac75 -lmap -lrosatools -lnewick -lm -lsuffixtree -ltrie
 
 all: \
-librosatools.so libnewick.so libsuffixtree.so \
+librosatools.so libnewick.so libsuffixtree.so libtrie.so \
 dna rna revc fib gc hamm iprb prot subs cons fibd grph iev lcsm prob mrna perm prtm mprt splc sseq kmp revp orf lexf tree inod lgis pper pmch sign tran lexv \
-rear sort long cat corr kmer sset lia lcsq mmch pdst rstr aspc edit edta eval motz nwck scsp seto spec trie conv ctbl dbru nkew itwv lrep suff mrep indc
+rear sort long cat corr kmer sset lia lcsq mmch pdst rstr aspc edit edta eval motz nwck scsp seto spec trie conv ctbl dbru nkew itwv lrep suff mrep cstr indc
+
+# --------- COMPILATION ------------
+CFLAGS += -O3
+#CFLAGS += -g
 
 sort: rear
 	rm -f "$@" && ln "$<" "$@"
@@ -27,9 +29,12 @@ nkew: nwck
 
 mrep: mrepI mrepII
 
+#cstr: CFLAGS+=-DTRIE
+
 # Using uintbig_t:
 fibd pmch cat motz mmch aspc: CFLAGS+=-Wno-format -Wno-format-security
 
+# --------- TESTS ------------
 test_%: %
 	LD_LIBRARY_PATH=.:${LD_LIBRARY_PATH}:$(DIRMAPS):$(DIRAC75) ./$^ < "/home/laurent/Downloads/rosalind_$^.txt" > "/home/laurent/Downloads/rosalind_$^.out" 2>/dev/null
 
@@ -51,10 +56,17 @@ test_seto: seto
 test_mrep: mrep
 	LD_LIBRARY_PATH=.::../minimaps:../aho-corasick-1975 ./mrepI 1 < "/home/laurent/Downloads/rosalind_$^.txt" 2>/dev/null | LD_LIBRARY_PATH=.::../minimaps:../aho-corasick-1975 ./mrepII 20 > "/home/laurent/Downloads/rosalind_$^.out" 2>/dev/null
 
-.INTERMEDIATE: rosatools.o
-rosatools.o: CFLAGS+=-DTU -Wno-format -Wno-format-security
-rosatools.o: rosatools.h rosatools.c
+test_cstr: cstr
+	LD_LIBRARY_PATH=.:${LD_LIBRARY_PATH}:$(DIRMAPS):$(DIRAC75) ./$^ < "/home/laurent/Downloads/rosalind_$^.txt" 2>/dev/null | sort > "/home/laurent/Downloads/rosalind_$^.out"
+
+# --------- LIBRARIES ------------
 lib%.so: LDFLAGS+=-shared
 lib%.so: %.o
 	$(CC) $(LDFLAGS) -o "$@" "$^"
+
+.INTERMEDIATE: rosatools.o trie.o
+rosatools.o: CFLAGS+=-DTU -Wno-format -Wno-format-security
+rosatools.o: rosatools.h rosatools.c
+trie.o: CFLAGS+=-DTU
+trie.o: trie.c trie.h
 

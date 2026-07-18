@@ -3,7 +3,7 @@
 static void
 lrep_node_add_termination (wchar_t **text) {
   // The termination character appears only once, and at the end of the text.
-  static const wint_t termchr = L'$';
+  static const wchar_t termchr = L'$';
   wchar_t *endptr;
   if ((endptr = wcschr (*text, termchr)))
     *(endptr + 1) = 0;
@@ -12,7 +12,7 @@ lrep_node_add_termination (wchar_t **text) {
     assert ((*text = realloc (*text, (l + 2) * sizeof (**text))));
     (*text)[l] = termchr;
     (*text)[l + 1] = 0;
-    fprintf (stderr, "Termination '%lc' added.\n", termchr);
+    fprintf (stderr, "Termination '%lc' added.\n", (wint_t)termchr);
   }
   assert (wcschr (*text, termchr) && *(wcschr (*text, termchr) + 1) == 0);
 }

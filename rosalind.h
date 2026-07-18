@@ -5,6 +5,7 @@
 #include "newick.h"
 #include "rosatools.h"
 #include "suffixtree.h"
+#include "trie.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>

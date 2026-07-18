@@ -49,12 +49,13 @@ enum signs {
   sEND_TREE = L';',
 };
 
-static const wchar_t sIGNORE[] = L" \t\n";
-
 static int
 is_reserved (wchar_t l) {
   return (l == sEND_SIBLINGS || l == sSTART_SIBLINGS || l == sSEP_SIBLINGS || l == sSEP_WEIGHT || l == sEND_TREE) ? 1 : 0;
 }
+
+static int
+is_ignored (wchar_t l) { return iswspace ((wint_t)l) && !is_reserved (l); }
 // ----------------------------------------
 struct tree_node;
 struct tree_node {
@@ -190,7 +191,7 @@ node_child (const struct tree_node *n, size_t i /* from 0 */) {
 static wchar_t
 READ (wchar_t **ppc) {
   wchar_t *pc = *ppc;
-  for (; wcschr (sIGNORE, *pc) && *pc; pc++)
+  for (; is_ignored (*pc) && *pc; pc++)
     ;
   *ppc = pc;
   return *pc;
@@ -204,9 +205,9 @@ read_node_name (wchar_t **cursor, struct node_name *name) {
   *cursor = name->end_excluded;
 
   // Trim
-  for (; name->begin < name->end_excluded && wcschr (sIGNORE, *(name->begin)); name->begin++)
+  for (; name->begin < name->end_excluded && is_ignored (*(name->begin)); name->begin++)
     ;
-  for (; name->begin < name->end_excluded && wcschr (sIGNORE, *(name->end_excluded - 1)); name->end_excluded--)
+  for (; name->begin < name->end_excluded && is_ignored (*(name->end_excluded - 1)); name->end_excluded--)
     ;
 }
 

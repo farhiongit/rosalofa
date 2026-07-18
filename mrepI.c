@@ -12,7 +12,7 @@ main (int argc, char **argv) {
   helper_add_termination (&dna, L'$');
 
   struct suffix_node *root = suffix_node_create (dna);
-  //suffix_node_fprint_tree (stderr, root);
+  // suffix_node_fprint_tree (stderr, root);
   suffix_node_fprint_repeats (stdout, root, all);
   suffix_node_free (root);
 
