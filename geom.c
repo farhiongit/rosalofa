@@ -118,6 +118,47 @@ polygons_intersect (size_t n1, Point *p1, size_t n2, Point *p2) {
   return polygons_union (n1, p1, n2, p2, 0, 0) || is_inside_polygon (*p1, n2, p2, 1) || is_inside_polygon (*p2, n1, p1, 1);
 }
 
+static double
+distance (Point a, Point b) {
+  return sqrt ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+}
+
+static double
+distance_to_segment (Point a, Segment s) {
+  if (iszero (distance (s.initial, s.terminal)))
+    return NAN;
+  Point triangle[3] = { a, s.initial, s.terminal };
+  return fabs (polygon_algebric_area (3, triangle) / distance (s.initial, s.terminal) * 2);
+}
+
+static double
+dot_product (Segment s1, Segment s2) {
+  return (s1.terminal.x - s1.initial.x) * (s2.terminal.x - s2.initial.x) + (s1.terminal.y - s1.initial.y) * (s2.terminal.y - s2.initial.y);
+}
+
+static int
+circle_contains_segment (Point c, double r, Segment s) {
+  return (distance (c, s.initial) <= r && distance (c, s.terminal) <= r);
+}
+
+static int
+circle_intersect_segment (Point c, double r, Segment s) {
+  if (iszero (r) || circle_contains_segment (c, r, s))
+    return 0; // Totally included
+  assert (distance (c, s.initial) > r || distance (c, s.terminal) > r);
+  if (distance (c, s.initial) <= r || distance (c, s.terminal) <= r)
+    return 1; // Partially included
+  assert (distance (c, s.initial) > r && distance (c, s.terminal) > r);
+  if (!isfinite (distance_to_segment (c, s)) || distance_to_segment (c, s) > r)
+    return 0;
+  Segment s1 = { s.initial, c };
+  Segment s2 = { s.terminal, s.initial };
+  Segment s3 = { s.terminal, c };
+  if (dot_product (s, s1) >= 0 && dot_product (s2, s3) >= 0)
+    return 1;
+  return 0;
+}
+
 int
 main () {
   Point I = segments_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 1, 0 }, { .8, .2 } });
@@ -152,7 +193,7 @@ main () {
     fprintf (stdout, "%g\n", polygon_algebric_area (nu, u));
     free (u);
   }
-  fprintf (stdout, "Do%s intersect.\n", polygons_intersect (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
+  fprintf (stdout, "Do %s intersect.\n", polygons_intersect (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
 
   Point star[30];
   for (size_t i = 0; i < lengthof (star) / 2; i++) {
@@ -165,5 +206,20 @@ main () {
     for (size_t i = 0; i < nu; i++)
       fprintf (stdout, "(%g, %g)\n", u[i].x, u[i].y);
     free (u);
+  }
+
+  for (size_t i = 0; i < lengthof (square); i++) {
+    size_t j = (i + 1) % lengthof (square);
+    if (circle_intersect_segment ((Point){ 5, 5 }, sqrt (2) * 5 - 1.4142135, (Segment){ square[i], square[j] })) {
+      fprintf (stdout, "Do intersect.\n");
+      break;
+    }
+  }
+  for (size_t i = 0; i < lengthof (square); i++) {
+    size_t j = (i + 1) % lengthof (square);
+    if (circle_intersect_segment ((Point){ 0, 5 }, 4.0001, (Segment){ square[i], square[j] })) {
+      fprintf (stdout, "Do intersect.\n");
+      break;
+    }
   }
 }
