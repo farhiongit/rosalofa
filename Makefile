@@ -10,7 +10,7 @@ LDFLAGS += -L. -L$(DIRMAPS) -L$(DIRAC75)
 LDLIBS += -lac75 -lmap -lrosatools -lnewick -lm -lsuffixtree -ltrie
 
 all: \
-librosatools.so libnewick.so libsuffixtree.so libtrie.so \
+librosatools.so libnewick.so libsuffixtree.so libtrie.so geom \
 dna rna revc fib gc hamm iprb prot subs cons fibd grph iev lcsm prob mrna perm prtm mprt splc sseq kmp revp orf lexf tree inod lgis pper pmch sign tran lexv \
 rear sort long cat corr kmer sset lia lcsq mmch pdst rstr aspc edit edta eval motz nwck scsp seto spec trie conv ctbl dbru nkew itwv lrep suff mrep cstr indc
 
@@ -29,7 +29,7 @@ nkew: nwck
 
 mrep: mrepI mrepII
 
-#cstr: CFLAGS+=-DTRIE
+#cstr: CFLAGS+=-DPREIFIX_PHYLOGENY
 
 # Using uintbig_t:
 fibd pmch cat motz mmch aspc: CFLAGS+=-Wno-format -Wno-format-security
