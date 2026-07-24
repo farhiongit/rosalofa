@@ -1,5 +1,5 @@
 #include "rosalind.h"
-// #define TRIE
+// #define PREIFIX_PHYLOGENY
 
 static const char EOL[] = "\r\n";
 
@@ -16,7 +16,7 @@ print_character (size_t character_length, int *character) {
   }
 }
 
-#ifdef TRIE
+#ifdef PREIFIX_PHYLOGENY
 static void
 set_character (struct trie_node *const n, int v, int *character) {
   fprintf (stderr, "%lc [%zu", (wint_t)trie_letter (n), trie_id (n));
@@ -67,12 +67,14 @@ AACG
 GACG
 ATCC
   */
-#ifndef TRIE
+#ifndef PREIFIX_PHYLOGENY
+  // In modern genetics, a reliable way to obtain a large number of characters is by using SNPs.
   // There are at most two possible choices for the symbol at each position of the strings.
   // For a given SNP (symbol at a single nucleotide position), divide taxa into two sets depending on which of two bases is present at the nucleotide, thus defining the split of a character.
-  // A character table for which each character encodes the symbol choice at a single position of the strings.
-  // Split of a character : at a single nucleotide position, which of two bases is present at the nucleotide.
-  // The character table does not encode trivial characters.
+  // A character table :
+  // - each character encodes the symbol choice (amongst two) at a single position of the strings.
+  // - divide taxa into two sets (split of a character) : at a single nucleotide position, which of two bases is present at the nucleotide.
+  // N.B. : The character table does not encode trivial characters.
   wchar_t **taxa = 0;
   size_t nb_taxa = 0;
   while (fgetwcs (&line, 0, stdin)) {
@@ -95,7 +97,9 @@ ATCC
     free (taxa[i]);
   free (taxa);
 #else
-  struct trie_node *root = trie_init ();
+  // Prefix of SMPs is used to build the character table, rather each single SNP independently.
+  // We can therefore have more than two possible choices for the symbol at each position of the strings.
+  struct trie_node *root = trie_init (); // Build a trie.
   assert (root);
   for (size_t i = 0; fgetwcs (&line, 0, stdin); i++) {
     struct trie_node *taxon = trie_add (root, line, 1);
