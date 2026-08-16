@@ -14,6 +14,29 @@ typedef struct {
   Point initial, terminal;
 } Segment;
 
+static Point /* not really a Point here */
+lines_intersection (Segment s1, Segment s2) {
+  Point u = { s1.terminal.x - s1.initial.x, s1.terminal.y - s1.initial.y };
+  Point v = { s2.terminal.x - s2.initial.x, s2.terminal.y - s2.initial.y };
+  Point t = { s2.initial.x - s1.initial.x, s2.initial.y - s1.initial.y };
+
+  double A = v.x * u.y - u.x * v.y;
+  if (iszero (A))
+    return (Point){ NAN, NAN };
+  return (Point){
+    (v.x * t.y - v.y * t.x) / A, (u.x * t.y - u.y * t.x) / A
+  };
+}
+
+static Point /* intersection */
+segments_intersection (Segment s1, Segment s2) {
+  Point I = lines_intersection (s1, s2);
+  if (isfinite (I.x) && 0 < I.x && I.x <= 1 && isfinite (I.y) && 0 <= I.y && I.y < 1)
+    return (Point){ s1.initial.x + I.x * (s1.terminal.x - s1.initial.x), s1.initial.y + I.x * (s1.terminal.y - s1.initial.y) };
+  else
+    return (Point){ NAN, NAN };
+}
+
 static double
 polygon_algebric_area (size_t nb_vertices, Point *vertex) {
   double area = 0;
@@ -25,8 +48,8 @@ polygon_algebric_area (size_t nb_vertices, Point *vertex) {
   return area / 2;
 }
 
-static int
-is_inside_polygon (Point p, size_t nb_vertices, Point *vertex, int oriented) {
+static int /* Exterior (filled) rings are clockwise, and holes are counterclockwise. */
+is_inside_polygon (Point p, size_t nb_vertices, Point *vertex) {
   int is_inside = 0;
   for (size_t i = 0; i < nb_vertices; i++) {
     size_t j = (i + 1) % nb_vertices;
@@ -34,24 +57,7 @@ is_inside_polygon (Point p, size_t nb_vertices, Point *vertex, int oriented) {
         && (p.x <= ((vertex[j].x - vertex[i].x) * (p.y - vertex[i].y) / (vertex[j].y - vertex[i].y) + vertex[i].x)))
       is_inside = 1 - is_inside;
   }
-  // Exterior rings are clockwise, and holes are counterclockwise.
-  return (oriented && polygon_algebric_area (nb_vertices, vertex) < 0) /* hole */ ? !is_inside : is_inside;
-}
-
-static Point /* not really a Point here */
-segments_intersection (Segment s1, Segment s2) {
-  Point u = { s1.terminal.x - s1.initial.x, s1.terminal.y - s1.initial.y };
-  Point v = { s2.terminal.x - s2.initial.x, s2.terminal.y - s2.initial.y };
-  Point t = { s2.initial.x - s1.initial.x, s2.initial.y - s1.initial.y };
-
-  double A = v.x * u.y - u.x * v.y;
-  if (iszero (A))
-    return (Point){
-      INFINITY, (u.x * v.x < 0) ? -INFINITY : INFINITY
-    };
-  return (Point){
-    (v.x * t.y - v.y * t.x) / A, (u.x * t.y - u.y * t.x) / A
-  };
+  return polygon_algebric_area (nb_vertices, vertex) < 0 /* hole */ ? !is_inside : is_inside;
 }
 
 static int
@@ -77,14 +83,12 @@ polygons_union (size_t n1, Point *p1, size_t n2, Point *p2, size_t *nu, Point **
       Point I = segments_intersection ((Segment){
                                            from, to },
                                        (Segment){ (ip == 1 ? p2 : p1)[i], (ip == 1 ? p2 : p1)[j] });
-      if (isfinite (I.x) && 0 < I.x && I.x <= 1 && isfinite (I.y) && 0 <= I.y && I.y < 1) {
+      if (isfinite (I.x)) {
         fprintf (stderr, "[(%g, %g) ; (%g, %g)] X [(%g, %g) ; (%g, %g)] = ",
                  from.x, from.y, to.x, to.y,
                  (ip == 1 ? p2 : p1)[i].x, (ip == 1 ? p2 : p1)[i].y,
                  (ip == 1 ? p2 : p1)[j].x, (ip == 1 ? p2 : p1)[j].y);
-        to = (Point){
-          from.x + I.x * (to.x - from.x), from.y + I.x * (to.y - from.y)
-        };
+        to = I;
         fprintf (stderr, "(%g, %g) => Switch\n", to.x, to.y);
         switch_p = i + 1;
       }
@@ -115,7 +119,17 @@ polygons_union (size_t n1, Point *p1, size_t n2, Point *p2, size_t *nu, Point **
 
 static int
 polygons_intersect (size_t n1, Point *p1, size_t n2, Point *p2) {
-  return polygons_union (n1, p1, n2, p2, 0, 0) || is_inside_polygon (*p1, n2, p2, 1) || is_inside_polygon (*p2, n1, p1, 1);
+  return polygons_union (n1, p1, n2, p2, 0, 0);
+}
+
+static int
+polygon_contains_polygon (size_t n1, Point *p1, size_t n2, Point *p2) {
+  return !polygons_intersect (n1, p1, n2, p2) && is_inside_polygon (*p2, n1, p1);
+}
+
+static int
+polygons_overlay (size_t n1, Point *p1, size_t n2, Point *p2) {
+  return polygons_intersect (n1, p1, n2, p2) || is_inside_polygon (*p2, n1, p1) || is_inside_polygon (*p1, n2, p2);
 }
 
 static double
@@ -144,10 +158,10 @@ circle_contains_segment (Point c, double r, Segment s) {
 static int
 circle_intersect_segment (Point c, double r, Segment s) {
   if (iszero (r) || circle_contains_segment (c, r, s))
-    return 0; // Totally included
+    return 0; // Totally inside
   assert (distance (c, s.initial) > r || distance (c, s.terminal) > r);
   if (distance (c, s.initial) <= r || distance (c, s.terminal) <= r)
-    return 1; // Partially included
+    return 1; // One end inside
   assert (distance (c, s.initial) > r && distance (c, s.terminal) > r);
   if (!isfinite (distance_to_segment (c, s)) || distance_to_segment (c, s) > r)
     return 0;
@@ -155,17 +169,17 @@ circle_intersect_segment (Point c, double r, Segment s) {
   Segment s2 = { s.terminal, s.initial };
   Segment s3 = { s.terminal, c };
   if (dot_product (s, s1) >= 0 && dot_product (s2, s3) >= 0)
-    return 1;
-  return 0;
+    return 1; // The segment crosses the circle
+  return 0;   // The line holding the segment crosses the circle, but the segment does not.
 }
 
 int
 main () {
-  Point I = segments_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 1, 0 }, { .8, .2 } });
+  Point I = lines_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 1, 0 }, { .8, .2 } });
   fprintf (stdout, "(%g, %g)\n", I.x, I.y);
-  I = segments_intersection ((Segment){ { 0, 0 }, { 1, 0 } }, (Segment){ { 0.5, 0.5 }, { 0.5, 1.5 } });
+  I = lines_intersection ((Segment){ { 0, 0 }, { 1, 0 } }, (Segment){ { 0.5, 0.5 }, { 0.5, 1.5 } });
   fprintf (stdout, "(%g, %g)\n", I.x, I.y);
-  I = segments_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 0, 0 }, { -.1, -.1 } });
+  I = lines_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 0, 0 }, { -.1, -.1 } });
   fprintf (stdout, "(%g, %g)\n", I.x, I.y);
 
   Point polygon3[] = { { 0, 0 }, { 1, 1 } }; // clockwise = surface.
@@ -176,10 +190,11 @@ main () {
   fprintf (stdout, "Polygon area = %g\n", area);
 
   Point p = { 0.5, 0.5 };
-  fprintf (stdout, "%s\n", is_inside_polygon (p, lengthof (square), square, 0) ? "In" : "Out");
-  fprintf (stdout, "%s\n", is_inside_polygon (p, lengthof (square), square, 1) ? "In" : "Out");
+  fprintf (stdout, "%s\n", is_inside_polygon (p, lengthof (square), square) ? "In" : "Out");
 
   Point polygon2[] = { { 0.5, 1.5 }, { 1.5, 1.5 }, { 1.5, 0.5 }, { 0.5, 0.5 } }; // clockwise = fill.
+  p = (Point){ 1, 1 };
+  fprintf (stdout, "%s\n", is_inside_polygon (p, lengthof (square), square) ? "In" : "Out");
   double area2 = polygon_algebric_area (lengthof (polygon2), polygon2);
   fprintf (stdout, "Polygon area = %g\n", area2);
 
@@ -193,7 +208,8 @@ main () {
     fprintf (stdout, "%g\n", polygon_algebric_area (nu, u));
     free (u);
   }
-  fprintf (stdout, "Do %s intersect.\n", polygons_intersect (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
+  fprintf (stdout, "Does %scontain.\n", polygon_contains_polygon (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
+  fprintf (stdout, "Do %soverlay.\n", polygons_overlay (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
 
   Point star[30];
   for (size_t i = 0; i < lengthof (star) / 2; i++) {
