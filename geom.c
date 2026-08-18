@@ -5,6 +5,8 @@
 
 #define lengthof(array) (sizeof (array) / sizeof (*array))
 #define between(x, a, b) ((a) < (b) ? ((a) <= (x) && (x) < (b)) : ((b) <= (x) && (x) < (a)))
+#undef iszero
+#define iszero(x) (fpclassify (x) == FP_ZERO)
 
 typedef struct {
   double x, y;
@@ -13,6 +15,22 @@ typedef struct {
 typedef struct {
   Point initial, terminal;
 } Segment;
+
+// Points
+static double
+distance (Point a, Point b) {
+  return sqrt ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+}
+
+// Lines and segments
+static double polygon_algebric_area (size_t nb_vertices, Point *vertex);
+static double /* Oriented, can be negative */
+distance_to_segment (Point a, Segment s) {
+  if (iszero (distance (s.initial, s.terminal)))
+    return NAN;
+  Point triangle[3] = { a, s.initial, s.terminal };
+  return polygon_algebric_area (3, triangle) / distance (s.initial, s.terminal) * 2;
+}
 
 static Point /* not really a Point here */
 lines_intersection (Segment s1, Segment s2) {
@@ -23,9 +41,7 @@ lines_intersection (Segment s1, Segment s2) {
   double A = v.x * u.y - u.x * v.y;
   if (iszero (A))
     return (Point){ NAN, NAN };
-  return (Point){
-    (v.x * t.y - v.y * t.x) / A, (u.x * t.y - u.y * t.x) / A
-  };
+  return (Point){ (v.x * t.y - v.y * t.x) / A, (u.x * t.y - u.y * t.x) / A };
 }
 
 static Point /* intersection */
@@ -38,6 +54,12 @@ segments_intersection (Segment s1, Segment s2) {
 }
 
 static double
+dot_product (Segment s1, Segment s2) {
+  return (s1.terminal.x - s1.initial.x) * (s2.terminal.x - s2.initial.x) + (s1.terminal.y - s1.initial.y) * (s2.terminal.y - s2.initial.y);
+}
+
+// Polygons
+static double /* Oriented, can be negative */
 polygon_algebric_area (size_t nb_vertices, Point *vertex) {
   double area = 0;
   for (size_t i = 0; i < nb_vertices; i++) {
@@ -80,8 +102,7 @@ polygons_union (size_t n1, Point *p1, size_t n2, Point *p2, size_t *nu, Point **
     size_t switch_p = 0;
     for (size_t i = 0; i < (ip == 1 ? n2 : n1); i++) {
       size_t j = (i + 1) % (ip == 1 ? n2 : n1);
-      Point I = segments_intersection ((Segment){
-                                           from, to },
+      Point I = segments_intersection ((Segment){ from, to },
                                        (Segment){ (ip == 1 ? p2 : p1)[i], (ip == 1 ? p2 : p1)[j] });
       if (isfinite (I.x)) {
         fprintf (stderr, "[(%g, %g) ; (%g, %g)] X [(%g, %g) ; (%g, %g)] = ",
@@ -119,7 +140,13 @@ polygons_union (size_t n1, Point *p1, size_t n2, Point *p2, size_t *nu, Point **
 
 static int
 polygons_intersect (size_t n1, Point *p1, size_t n2, Point *p2) {
-  return polygons_union (n1, p1, n2, p2, 0, 0);
+  // return polygons_union (n1, p1, n2, p2, 0, 0);
+  for (size_t i1 = 0; i1 < n1; i1++)
+    for (size_t i2 = 0; i2 < n2; i2++)
+      if (isfinite (segments_intersection ((Segment){ p1[i1], p1[(i1 + 1) % n1] }, (Segment){ p2[i2], p2[(i2 + 1) % n2] }).x))
+        return 1;
+
+  return 0;
 }
 
 static int
@@ -128,28 +155,11 @@ polygon_contains_polygon (size_t n1, Point *p1, size_t n2, Point *p2) {
 }
 
 static int
-polygons_overlay (size_t n1, Point *p1, size_t n2, Point *p2) {
+polygons_overlap (size_t n1, Point *p1, size_t n2, Point *p2) {
   return polygons_intersect (n1, p1, n2, p2) || is_inside_polygon (*p2, n1, p1) || is_inside_polygon (*p1, n2, p2);
 }
 
-static double
-distance (Point a, Point b) {
-  return sqrt ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
-}
-
-static double
-distance_to_segment (Point a, Segment s) {
-  if (iszero (distance (s.initial, s.terminal)))
-    return NAN;
-  Point triangle[3] = { a, s.initial, s.terminal };
-  return fabs (polygon_algebric_area (3, triangle) / distance (s.initial, s.terminal) * 2);
-}
-
-static double
-dot_product (Segment s1, Segment s2) {
-  return (s1.terminal.x - s1.initial.x) * (s2.terminal.x - s2.initial.x) + (s1.terminal.y - s1.initial.y) * (s2.terminal.y - s2.initial.y);
-}
-
+// Circles
 static int
 circle_contains_segment (Point c, double r, Segment s) {
   return (distance (c, s.initial) <= r && distance (c, s.terminal) <= r);
@@ -163,7 +173,7 @@ circle_intersect_segment (Point c, double r, Segment s) {
   if (distance (c, s.initial) <= r || distance (c, s.terminal) <= r)
     return 1; // One end inside
   assert (distance (c, s.initial) > r && distance (c, s.terminal) > r);
-  if (!isfinite (distance_to_segment (c, s)) || distance_to_segment (c, s) > r)
+  if (!isfinite (distance_to_segment (c, s)) || fabs (distance_to_segment (c, s)) > r)
     return 0;
   Segment s1 = { s.initial, c };
   Segment s2 = { s.terminal, s.initial };
@@ -173,6 +183,10 @@ circle_intersect_segment (Point c, double r, Segment s) {
   return 0;   // The line holding the segment crosses the circle, but the segment does not.
 }
 
+// Conic sections (https://en.wikipedia.org/wiki/Conic_section, https://en.wikipedia.org/wiki/Ellipse)
+// TODO
+
+// Tests
 int
 main () {
   Point I = lines_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 1, 0 }, { .8, .2 } });
@@ -209,7 +223,7 @@ main () {
     free (u);
   }
   fprintf (stdout, "Does %scontain.\n", polygon_contains_polygon (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
-  fprintf (stdout, "Do %soverlay.\n", polygons_overlay (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
+  fprintf (stdout, "Do %soverlap.\n", polygons_overlap (lengthof (square), square, lengthof (polygon2), polygon2) ? "" : "not ");
 
   Point star[30];
   for (size_t i = 0; i < lengthof (star) / 2; i++) {
