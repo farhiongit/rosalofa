@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -8,13 +9,46 @@
 #undef iszero
 #define iszero(x) (fpclassify (x) == FP_ZERO)
 
+static int
+feq (double a, double b) {
+  static const double epsilon = 1e-8;
+  return fabs (a - b) < epsilon;
+}
+
 typedef struct {
   double x, y;
 } Point;
 
+// Vectors
+// https://en.wikipedia.org/wiki/Linear_map, https://en.wikipedia.org/wiki/Affine_transformation
+typedef Point Vector;
+
+static double
+norm (Vector v) {
+  return sqrt (v.x * v.x + v.y * v.y);
+}
+
 typedef struct {
-  Point initial, terminal;
-} Segment;
+  Vector u, v;
+} Referential;
+
+static double
+det (Referential f) {
+  return f.u.x * f.v.y - f.u.y * f.v.x;
+}
+
+static Referential
+inv (Referential f) {
+  double d = det (f);
+  if (iszero (d))
+    return (Referential){ { NAN, NAN }, { NAN, NAN } };                         // Not invertible
+  return (Referential){ { f.v.y / d, -f.u.y / d }, { -f.v.x / d, f.u.x / d } }; // adj(f) / det(f)
+}
+
+static Vector
+linear_transform (Referential a, Vector v) {
+  return (Vector){ a.u.x * v.x + a.v.x * v.y, a.u.y * v.x + a.v.y * v.y }; // ax
+}
 
 // Points
 static double
@@ -23,6 +57,10 @@ distance (Point a, Point b) {
 }
 
 // Lines and segments
+typedef struct {
+  Point initial, terminal;
+} Segment;
+
 static double polygon_algebric_area (size_t nb_vertices, Point *vertex);
 static double /* Oriented, can be negative */
 distance_to_segment (Point a, Segment s) {
@@ -40,7 +78,7 @@ lines_intersection (Segment s1, Segment s2) {
 
   double A = v.x * u.y - u.x * v.y;
   if (iszero (A))
-    return (Point){ NAN, NAN };
+    return (Point){ NAN, NAN }; // Do not intersect.
   return (Point){ (v.x * t.y - v.y * t.x) / A, (u.x * t.y - u.y * t.x) / A };
 }
 
@@ -50,7 +88,7 @@ segments_intersection (Segment s1, Segment s2) {
   if (isfinite (I.x) && 0 < I.x && I.x <= 1 && isfinite (I.y) && 0 <= I.y && I.y < 1)
     return (Point){ s1.initial.x + I.x * (s1.terminal.x - s1.initial.x), s1.initial.y + I.x * (s1.terminal.y - s1.initial.y) };
   else
-    return (Point){ NAN, NAN };
+    return (Point){ NAN, NAN }; // Do not intersect.
 }
 
 static double
@@ -166,7 +204,7 @@ circle_contains_segment (Point c, double r, Segment s) {
 }
 
 static int
-circle_intersect_segment (Point c, double r, Segment s) {
+circle_intersects_segment (Point c, double r, Segment s) {
   if (iszero (r) || circle_contains_segment (c, r, s))
     return 0; // Totally inside
   assert (distance (c, s.initial) > r || distance (c, s.terminal) > r);
@@ -174,7 +212,7 @@ circle_intersect_segment (Point c, double r, Segment s) {
     return 1; // One end inside
   assert (distance (c, s.initial) > r && distance (c, s.terminal) > r);
   if (!isfinite (distance_to_segment (c, s)) || fabs (distance_to_segment (c, s)) > r)
-    return 0;
+    return 0; // Totally outside
   Segment s1 = { s.initial, c };
   Segment s2 = { s.terminal, s.initial };
   Segment s3 = { s.terminal, c };
@@ -183,8 +221,32 @@ circle_intersect_segment (Point c, double r, Segment s) {
   return 0;   // The line holding the segment crosses the circle, but the segment does not.
 }
 
-// Conic sections (https://en.wikipedia.org/wiki/Conic_section, https://en.wikipedia.org/wiki/Ellipse)
-// TODO
+static int
+ellipse_contains_segment (Point c, Vector ra, Vector rb, Segment s) {
+  // https://en.wikipedia.org/wiki/Change_of_basis
+  Referential t = inv ((Referential){ ra, rb });
+  if (!isfinite (t.u.x))
+    return 0;
+  assert (feq (norm (linear_transform (t, ra)), 1));
+  assert (feq (linear_transform (t, ra).x, 1));
+  assert (feq (linear_transform (t, ra).y, 0));
+  assert (feq (linear_transform (t, rb).x, 0));
+  assert (feq (linear_transform (t, rb).y, 1));
+  return circle_contains_segment (linear_transform (t, c), 1, (Segment){ linear_transform (t, s.initial), linear_transform (t, s.terminal) });
+}
+
+static int
+ellipse_intersects_segment (Point c, Vector ra, Vector rb, Segment s) {
+  Referential t = inv ((Referential){ ra, rb });
+  if (!isfinite (t.u.x))
+    return 0;
+  assert (feq (norm (linear_transform (t, ra)), 1));
+  assert (feq (linear_transform (t, ra).x, 1));
+  assert (feq (linear_transform (t, ra).y, 0));
+  assert (feq (linear_transform (t, rb).x, 0));
+  assert (feq (linear_transform (t, rb).y, 1));
+  return circle_intersects_segment (linear_transform (t, c), 1, (Segment){ linear_transform (t, s.initial), linear_transform (t, s.terminal) });
+}
 
 // Tests
 int
@@ -240,16 +302,21 @@ main () {
 
   for (size_t i = 0; i < lengthof (square); i++) {
     size_t j = (i + 1) % lengthof (square);
-    if (circle_intersect_segment ((Point){ 5, 5 }, sqrt (2) * 5 - 1.4142135, (Segment){ square[i], square[j] })) {
+    if (circle_intersects_segment ((Point){ 5, 5 }, sqrt (2) * 5 - 1.4142135, (Segment){ square[i], square[j] })) {
       fprintf (stdout, "Do intersect.\n");
       break;
     }
   }
   for (size_t i = 0; i < lengthof (square); i++) {
     size_t j = (i + 1) % lengthof (square);
-    if (circle_intersect_segment ((Point){ 0, 5 }, 4.0001, (Segment){ square[i], square[j] })) {
+    if (circle_intersects_segment ((Point){ 0, 5 }, 4.0001, (Segment){ square[i], square[j] })) {
       fprintf (stdout, "Do intersect.\n");
       break;
     }
   }
+
+  if (ellipse_contains_segment ((Point){ 0, 0 }, (Vector){ 0, 2 }, (Vector){ 1, 0 }, (Segment){ { -0.1, 1.5 }, { 0.1, 1.5 } }))
+    fprintf (stdout, "Does contain.\n");
+  if (ellipse_intersects_segment ((Point){ 0, 0 }, (Vector){ 0, 2 }, (Vector){ 1, 0 }, (Segment){ { -0.5, 1.9 }, { 0.5, 1.9 } }))
+    fprintf (stdout, "Do intersect.\n");
 }
