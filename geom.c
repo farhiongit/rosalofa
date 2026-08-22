@@ -8,12 +8,7 @@
 #define between(x, a, b) ((a) < (b) ? ((a) <= (x) && (x) < (b)) : ((b) <= (x) && (x) < (a)))
 #undef iszero
 #define iszero(x) (fpclassify (x) == FP_ZERO)
-
-static int
-feq (double a, double b) {
-  static const double epsilon = 1e-8;
-  return fabs (a - b) < epsilon;
-}
+#define feq(a, b) (fabs ((double)(a) - (double)(b)) < 1e-8)
 
 typedef struct {
   double x, y;
@@ -21,11 +16,21 @@ typedef struct {
 
 // Vectors
 // https://en.wikipedia.org/wiki/Linear_map, https://en.wikipedia.org/wiki/Affine_transformation
-typedef Point Vector;
+typedef Point Vector; // Vector from origin to point
+
+static Vector
+to_vector (Point initial, Point terminal) {
+  return (Vector){ terminal.x - initial.x, terminal.y - initial.y };
+}
 
 static double
 norm (Vector v) {
   return sqrt (v.x * v.x + v.y * v.y);
+}
+
+static double
+dot_product (Vector a, Vector b) {
+  return a.x * b.x + a.y * b.y;
 }
 
 typedef struct {
@@ -53,7 +58,7 @@ linear_transform (Referential a, Vector v) {
 // Points
 static double
 distance (Point a, Point b) {
-  return sqrt ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+  return norm (to_vector (a, b));
 }
 
 // Lines and segments
@@ -61,13 +66,28 @@ typedef struct {
   Point initial, terminal;
 } Segment;
 
-static double polygon_algebric_area (size_t nb_vertices, Point *vertex);
-static double /* Oriented, can be negative */
+static Segment
+to_segment (Point initial, Point terminal) {
+  return (Segment){ initial, terminal };
+}
+
+static Vector
+segment_to_vector (Segment s) {
+  return to_vector (s.initial, s.terminal);
+}
+
+static double
+length (Segment s) {
+  return distance (s.initial, s.terminal);
+}
+
+static double /* Signed, negative if s turns clockwise with respect to a */
 distance_to_segment (Point a, Segment s) {
-  if (iszero (distance (s.initial, s.terminal)))
+  double base_length = length (s);
+  if (iszero (base_length))
     return NAN;
-  Point triangle[3] = { a, s.initial, s.terminal };
-  return polygon_algebric_area (3, triangle) / distance (s.initial, s.terminal) * 2;
+  // https://en.wikipedia.org/wiki/Determinant
+  return det ((Referential){ to_vector (a, s.initial), to_vector (a, s.terminal) }) / base_length;
 }
 
 static Point /* not really a Point here */
@@ -92,8 +112,8 @@ segments_intersection (Segment s1, Segment s2) {
 }
 
 static double
-dot_product (Segment s1, Segment s2) {
-  return (s1.terminal.x - s1.initial.x) * (s2.terminal.x - s2.initial.x) + (s1.terminal.y - s1.initial.y) * (s2.terminal.y - s2.initial.y);
+segment_dot_product (Segment s1, Segment s2) {
+  return dot_product (segment_to_vector (s1), segment_to_vector (s2));
 }
 
 // Polygons
@@ -198,6 +218,11 @@ polygons_overlap (size_t n1, Point *p1, size_t n2, Point *p2) {
 }
 
 // Circles
+static double
+circle_area (double r) {
+  return M_PI * r * r;
+}
+
 static int
 circle_contains_segment (Point c, double r, Segment s) {
   return (distance (c, s.initial) <= r && distance (c, s.terminal) <= r);
@@ -216,9 +241,14 @@ circle_intersects_segment (Point c, double r, Segment s) {
   Segment s1 = { s.initial, c };
   Segment s2 = { s.terminal, s.initial };
   Segment s3 = { s.terminal, c };
-  if (dot_product (s, s1) >= 0 && dot_product (s2, s3) >= 0)
+  if (segment_dot_product (s, s1) >= 0 && segment_dot_product (s2, s3) >= 0)
     return 1; // The segment crosses the circle
   return 0;   // The line holding the segment crosses the circle, but the segment does not.
+}
+
+static double /* Signed, negative if vectors turn clockwise */
+ellipse_area (Vector ra, Vector rb) {
+  return circle_area (1) * det ((Referential){ ra, rb });
 }
 
 static int
@@ -227,11 +257,6 @@ ellipse_contains_segment (Point c, Vector ra, Vector rb, Segment s) {
   Referential t = inv ((Referential){ ra, rb });
   if (!isfinite (t.u.x))
     return 0;
-  assert (feq (norm (linear_transform (t, ra)), 1));
-  assert (feq (linear_transform (t, ra).x, 1));
-  assert (feq (linear_transform (t, ra).y, 0));
-  assert (feq (linear_transform (t, rb).x, 0));
-  assert (feq (linear_transform (t, rb).y, 1));
   return circle_contains_segment (linear_transform (t, c), 1, (Segment){ linear_transform (t, s.initial), linear_transform (t, s.terminal) });
 }
 
@@ -240,17 +265,14 @@ ellipse_intersects_segment (Point c, Vector ra, Vector rb, Segment s) {
   Referential t = inv ((Referential){ ra, rb });
   if (!isfinite (t.u.x))
     return 0;
-  assert (feq (norm (linear_transform (t, ra)), 1));
-  assert (feq (linear_transform (t, ra).x, 1));
-  assert (feq (linear_transform (t, ra).y, 0));
-  assert (feq (linear_transform (t, rb).x, 0));
-  assert (feq (linear_transform (t, rb).y, 1));
   return circle_intersects_segment (linear_transform (t, c), 1, (Segment){ linear_transform (t, s.initial), linear_transform (t, s.terminal) });
 }
 
 // Tests
 int
 main () {
+  fprintf (stdout, "%g\n", distance_to_segment ((Point){ 1, 1 }, to_segment ((Point){ 1, 0 }, (Point){ 0, 1 })));
+
   Point I = lines_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 1, 0 }, { .8, .2 } });
   fprintf (stdout, "(%g, %g)\n", I.x, I.y);
   I = lines_intersection ((Segment){ { 0, 0 }, { 1, 0 } }, (Segment){ { 0.5, 0.5 }, { 0.5, 1.5 } });
@@ -258,8 +280,8 @@ main () {
   I = lines_intersection ((Segment){ { 0, 0 }, { -.1, -.1 } }, (Segment){ { 0, 0 }, { -.1, -.1 } });
   fprintf (stdout, "(%g, %g)\n", I.x, I.y);
 
-  Point polygon3[] = { { 0, 0 }, { 1, 1 } }; // clockwise = surface.
-  fprintf (stdout, "Polygon area = %g\n", polygon_algebric_area (lengthof (polygon3), polygon3));
+  fprintf (stdout, "Polygon area = %g\n", polygon_algebric_area (1, (Point[]){ { 1, 1 } }));
+  fprintf (stdout, "Polygon area = %g\n", polygon_algebric_area (2, (Point[]){ { 0, 0 }, { 1, 1 } }));
 
   Point square[] = { { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } }; // counterclockwise = hole.
   double area = polygon_algebric_area (lengthof (square), square);
@@ -300,23 +322,28 @@ main () {
     free (u);
   }
 
+  fprintf (stdout, "%g\n", distance_to_segment ((Point){ 1, 1 }, (Segment){ { 1, 2 }, { 2, 1 } }));
+  fprintf (stdout, "Circle area = %g\n", circle_area (2));
+  fprintf (stdout, "Does %scontain.\n", circle_contains_segment ((Point){ 1, 1 }, 2, (Segment){ { 1, 2 }, { 2, 1 } }) ? "" : "not ");
+  fprintf (stdout, "%g\n", distance_to_segment ((Point){ 1, 1 }, (Segment){ { 4, 0 }, { 0, 4 } }));
+  fprintf (stdout, "Do %sintersect.\n", circle_intersects_segment ((Point){ 1, 1 }, 2, (Segment){ { 4, 0 }, { 0, 4 } }) ? "" : "not ");
+
   for (size_t i = 0; i < lengthof (square); i++) {
     size_t j = (i + 1) % lengthof (square);
     if (circle_intersects_segment ((Point){ 5, 5 }, sqrt (2) * 5 - 1.4142135, (Segment){ square[i], square[j] })) {
-      fprintf (stdout, "Do intersect.\n");
+      fprintf (stdout, "Do intersect..\n");
       break;
     }
   }
   for (size_t i = 0; i < lengthof (square); i++) {
     size_t j = (i + 1) % lengthof (square);
     if (circle_intersects_segment ((Point){ 0, 5 }, 4.0001, (Segment){ square[i], square[j] })) {
-      fprintf (stdout, "Do intersect.\n");
+      fprintf (stdout, "Do intersect...\n");
       break;
     }
   }
 
-  if (ellipse_contains_segment ((Point){ 0, 0 }, (Vector){ 0, 2 }, (Vector){ 1, 0 }, (Segment){ { -0.1, 1.5 }, { 0.1, 1.5 } }))
-    fprintf (stdout, "Does contain.\n");
-  if (ellipse_intersects_segment ((Point){ 0, 0 }, (Vector){ 0, 2 }, (Vector){ 1, 0 }, (Segment){ { -0.5, 1.9 }, { 0.5, 1.9 } }))
-    fprintf (stdout, "Do intersect.\n");
+  fprintf (stdout, "Ellipse area = %g\n", ellipse_area ((Vector){ 0, 2 }, (Vector){ 1, 0 }));
+  fprintf (stdout, "Does %scontain.\n", ellipse_contains_segment ((Point){ 0, 0 }, (Vector){ 0, 2 }, (Vector){ 1, 0 }, (Segment){ { -0.1, 1.5 }, { 0.1, 1.5 } }) ? "" : "not ");
+  fprintf (stdout, "Do %sintersect.\n", ellipse_intersects_segment ((Point){ 0, 0 }, (Vector){ 0, 2 }, (Vector){ 1, 0 }, (Segment){ { -0.5, 1.9 }, { 0.5, 1.9 } }) ? "" : "not ");
 }
